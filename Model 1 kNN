@@ -1,0 +1,143 @@
+% -------------------------------------------------------------------------
+% Project: Artificial Intelligence-Based Gearbox Fault Identification
+% Model:   1 - Baseline k-Nearest Neighbors (k-NN) Classifier
+% Author:  [Your Names Here]
+% Date:    October 21, 2025
+% -------------------------------------------------------------------------
+
+%% 1. Workspace Setup
+clear;         % Clear all variables from the workspace
+clc;           % Clear the command window
+close all;     % Close all open figures
+
+disp('--- Starting Model 1: k-NN Baseline Classifier ---');
+
+%% 2. Data Generation (Simulated)
+% In this section, we generate a synthetic dataset to simulate the features
+% extracted from the gearbox vibration signals. In the actual project, you
+% would load your pre-processed feature matrix here.
+
+% Parameters for the dataset
+numSamplesPerClass = 200;
+numFeatures = 7; % Corresponds to the features in Table 3.2
+totalSamples = numSamplesPerClass * 3;
+
+% Generate data for 3 classes: 'Healthy', 'Chipped Tooth', 'Misalignment'
+% We simulate class separability by giving each class a different mean.
+rng(1); % for reproducibility
+features_healthy = randn(numSamplesPerClass, numFeatures);
+features_chipped = randn(numSamplesPerClass, numFeatures) + 2.5; % Shift the mean for this class
+features_misaligned = randn(numSamplesPerClass, numFeatures) - 2.5; % Shift the mean for this class
+
+% Combine features into a single matrix (X)
+X = [features_healthy; features_chipped; features_misaligned];
+
+% Create corresponding labels (Y)
+labels_healthy = repmat({'Healthy'}, numSamplesPerClass, 1);
+labels_chipped = repmat({'Chipped Tooth'}, numSamplesPerClass, 1);
+labels_misaligned = repmat({'Misalignment'}, numSamplesPerClass, 1);
+
+Y = [labels_healthy; labels_chipped; labels_misaligned];
+
+disp('Step 1: Simulated data generated successfully.');
+
+%% 3. Data Partitioning (70% Train, 15% Validation, 15% Test)
+% We split the dataset to ensure an unbiased evaluation of the model.
+
+% Create a partition object for the initial 70/30 split
+cv_main = cvpartition(totalSamples, 'HoldOut', 0.3);
+idxTrain = training(cv_main);
+idxTemp = test(cv_main);
+
+% Separate the main training set
+X_train = X(idxTrain,:);
+Y_train = Y(idxTrain,:);
+
+% Separate the temporary set (30% of total)
+X_temp = X(idxTemp,:);
+Y_temp = Y(idxTemp,:);
+
+% Split the temporary set in half to get validation and test sets (15% each)
+cv_sub = cvpartition(size(X_temp,1), 'HoldOut', 0.5);
+idxVal = training(cv_sub);
+idxTest = test(cv_sub);
+
+% Separate the final validation and test sets
+X_val = X_temp(idxVal,:);
+Y_val = Y_temp(idxVal,:);
+X_test = X_temp(idxTest,:);
+Y_test = Y_temp(idxTest,:);
+
+fprintf('Data partitioned:\n - Training samples: %d\n - Validation samples: %d\n - Testing samples: %d\n', ...
+    size(X_train,1), size(X_val,1), size(X_test,1));
+
+%% 4. Hyperparameter Tuning: Find the Optimal 'k'
+% We use the validation set to find the best number of neighbors ('k').
+
+disp('Step 2: Finding the optimal value for k...');
+
+kValues = 1:15; % Range of k to test
+validationAccuracies = zeros(length(kValues), 1);
+
+for i = 1:length(kValues)
+    k = kValues(i);
+    
+    % Train a temporary k-NN model on the training data
+    knnModel_temp = fitcknn(X_train, Y_train, 'NumNeighbors', k);
+    
+    % Predict on the validation data
+    Y_val_pred = predict(knnModel_temp, X_val);
+    
+    % Calculate and store validation accuracy
+    correctPredictions = sum(strcmp(Y_val_pred, Y_val));
+    validationAccuracies(i) = correctPredictions / length(Y_val);
+end
+
+% Find the best k value
+[maxAccuracy, bestK_idx] = max(validationAccuracies);
+optimalK = kValues(bestK_idx);
+
+fprintf('Optimal k found: %d, with a validation accuracy of %.2f%%\n', optimalK, maxAccuracy*100);
+
+% Plot the validation accuracy vs. k
+figure;
+plot(kValues, validationAccuracies, 'bo-');
+xlabel('Number of Neighbors (k)');
+ylabel('Validation Accuracy');
+title('k-NN Hyperparameter Tuning');
+grid on;
+
+%% 5. Train the Final Model
+% Now, train the final model using the optimal k on the combined
+% training and validation data for more robust learning.
+
+disp('Step 3: Training the final k-NN model...');
+
+X_train_final = [X_train; X_val];
+Y_train_final = [Y_train; Y_val];
+
+knnModel_final = fitcknn(X_train_final, Y_train_final, 'NumNeighbors', optimalK);
+
+disp('Final model training complete.');
+
+%% 6. Evaluate the Final Model on the Test Set
+% This provides an unbiased assessment of the model's performance.
+
+disp('Step 4: Evaluating the final model on the unseen test set...');
+
+% Make predictions on the test data
+Y_test_pred = predict(knnModel_final, X_test);
+
+% Calculate final test accuracy
+correctTestPredictions = sum(strcmp(Y_test_pred, Y_test));
+testAccuracy = correctTestPredictions / length(Y_test);
+
+fprintf('\n--- MODEL EVALUATION COMPLETE ---\n');
+fprintf('Final Test Accuracy: %.2f%%\n', testAccuracy * 100);
+
+% Display the confusion matrix
+figure;
+confusionchart(Y_test, Y_test_pred);
+title(sprintf('Confusion Matrix for k-NN (k=%d, Test Accuracy: %.2f%%)', optimalK, testAccuracy*100));
+
+disp('--- End of Script ---');
