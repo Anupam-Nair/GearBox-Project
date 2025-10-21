@@ -1,0 +1,149 @@
+% -------------------------------------------------------------------------
+% Project: Artificial Intelligence-Based Gearbox Fault Identification
+% Model:   2 - Support Vector Machine (SVM) Classifier
+% Author:  [Your Names Here]
+% Date:    October 21, 2025
+% -------------------------------------------------------------------------
+
+%% 1. Workspace Setup
+clear;         % Clear all variables from the workspace
+clc;           % Clear the command window
+close all;     % Close all open figures
+
+disp('--- Starting Model 2: Support Vector Machine (SVM) Classifier ---');
+
+%% 2. Data Generation (Simulated)
+% This section uses the IDENTICAL data generation process as Model 1 to
+% ensure a fair and direct comparison between the models.
+
+% Parameters for the dataset
+numSamplesPerClass = 200;
+numFeatures = 7; % Corresponds to the features in Table 3.2
+totalSamples = numSamplesPerClass * 3;
+
+% Generate data for 3 classes: 'Healthy', 'Chipped Tooth', 'Misalignment'
+rng(1); % for reproducibility
+features_healthy = randn(numSamplesPerClass, numFeatures);
+features_chipped = randn(numSamplesPerClass, numFeatures) + 2.5;
+features_misaligned = randn(numSamplesPerClass, numFeatures) - 2.5;
+
+% Combine features (X) and labels (Y)
+X = [features_healthy; features_chipped; features_misaligned];
+labels_healthy = repmat({'Healthy'}, numSamplesPerClass, 1);
+labels_chipped = repmat({'Chipped Tooth'}, numSamplesPerClass, 1);
+labels_misaligned = repmat({'Misalignment'}, numSamplesPerClass, 1);
+Y = [labels_healthy; labels_chipped; labels_misaligned];
+
+disp('Step 1: Simulated data generated successfully.');
+
+%% 3. Data Pre-processing and Partitioning
+% **NEW STEP**: Feature scaling (Standardization) is crucial for SVMs.
+% We then partition the data using the same 70/15/15 split.
+
+% Feature Scaling (Z-score normalization)
+mu = mean(X);
+sigma = std(X);
+X_scaled = (X - mu) ./ sigma;
+
+% Data Partitioning
+cv_main = cvpartition(totalSamples, 'HoldOut', 0.3);
+idxTrain = training(cv_main);
+idxTemp = test(cv_main);
+
+X_train = X_scaled(idxTrain,:);
+Y_train = Y(idxTrain,:);
+X_temp = X_scaled(idxTemp,:);
+Y_temp = Y(idxTemp,:);
+
+cv_sub = cvpartition(size(X_temp,1), 'HoldOut', 0.5);
+idxVal = training(cv_sub);
+idxTest = test(cv_sub);
+
+X_val = X_temp(idxVal,:);
+Y_val = Y_temp(idxVal,:);
+X_test = X_temp(idxTest,:);
+Y_test = Y_temp(idxTest,:);
+
+fprintf('Data partitioned and scaled:\n - Training samples: %d\n - Validation samples: %d\n - Testing samples: %d\n', ...
+    size(X_train,1), size(X_val,1), size(X_test,1));
+
+%% 4. Hyperparameter Tuning: Find Optimal 'C' and 'gamma'
+% We perform a grid search to find the best combination of BoxConstraint (C)
+% and KernelScale (gamma) using the validation set.
+
+disp('Step 2: Finding optimal hyperparameters (C and gamma)...');
+
+% Define the range for grid search
+cValues = [0.01, 0.1, 1, 10, 100];
+gammaValues = [0.01, 0.1, 1, 10, 100];
+
+bestAccuracy = 0;
+optimalC = 0;
+optimalGamma = 0;
+
+% Loop through all combinations
+for c = cValues
+    for g = gammaValues
+        % Define the SVM template with the current parameters
+        t = templateSVM('KernelFunction', 'rbf', 'BoxConstraint', c, 'KernelScale', g);
+        
+        % Train a temporary multi-class SVM model
+        svmModel_temp = fitcecoc(X_train, Y_train, 'Learners', t);
+        
+        % Predict on the validation data
+        Y_val_pred = predict(svmModel_temp, X_val);
+        
+        % Calculate validation accuracy
+        correctPredictions = sum(strcmp(Y_val_pred, Y_val));
+        currentAccuracy = correctPredictions / length(Y_val);
+        
+        % Check if this is the best accuracy so far
+        if currentAccuracy > bestAccuracy
+            bestAccuracy = currentAccuracy;
+            optimalC = c;
+            optimalGamma = g;
+        end
+    end
+end
+
+fprintf('Optimal C found: %g\nOptimal gamma found: %g\nValidation Accuracy: %.2f%%\n', ...
+    optimalC, optimalGamma, bestAccuracy*100);
+
+%% 5. Train the Final Model
+% Train the final SVM model using the optimal hyperparameters on the combined
+% training and validation data.
+
+disp('Step 3: Training the final SVM model...');
+
+X_train_final = [X_train; X_val];
+Y_train_final = [Y_train; Y_val];
+
+% Create the final SVM template
+final_template = templateSVM('KernelFunction', 'rbf', 'BoxConstraint', optimalC, 'KernelScale', optimalGamma);
+
+% Train the final multi-class SVM model
+svmModel_final = fitcecoc(X_train_final, Y_train_final, 'Learners', final_template);
+
+disp('Final model training complete.');
+
+%% 6. Evaluate the Final Model on the Test Set
+% This provides an unbiased assessment of the model's performance.
+
+disp('Step 4: Evaluating the final model on the unseen test set...');
+
+% Make predictions on the test data
+Y_test_pred = predict(svmModel_final, X_test);
+
+% Calculate final test accuracy
+correctTestPredictions = sum(strcmp(Y_test_pred, Y_test));
+testAccuracy = correctTestPredictions / length(Y_test);
+
+fprintf('\n--- MODEL EVALUATION COMPLETE ---\n');
+fprintf('Final Test Accuracy: %.2f%%\n', testAccuracy * 100);
+
+% Display the confusion matrix
+figure;
+confusionchart(Y_test, Y_test_pred);
+title(sprintf('Confusion Matrix for SVM (Test Accuracy: %.2f%%)', testAccuracy*100));
+
+disp('--- End of Script ---');
