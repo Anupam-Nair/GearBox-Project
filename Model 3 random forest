@@ -1,0 +1,157 @@
+% -------------------------------------------------------------------------
+% Project: Artificial Intelligence-Based Gearbox Fault Identification
+% Model:   3 - Random Forest Classifier
+% Author:  [Your Names Here]
+% Date:    October 21, 2025
+% -------------------------------------------------------------------------
+
+%% 1. Workspace Setup
+clear;         % Clear all variables from the workspace
+clc;           % Clear the command window
+close all;     % Close all open figures
+
+disp('--- Starting Model 3: Random Forest Classifier ---');
+
+%% 2. Data Generation (Simulated)
+% This section uses the IDENTICAL data generation process as the previous
+% models to ensure a fair and direct comparison.
+
+% Parameters for the dataset
+numSamplesPerClass = 200;
+numFeatures = 7; % Corresponds to the features in Table 3.2
+totalSamples = numSamplesPerClass * 3;
+
+% Generate data for 3 classes: 'Healthy', 'Chipped Tooth', 'Misalignment'
+rng(1); % for reproducibility
+features_healthy = randn(numSamplesPerClass, numFeatures);
+features_chipped = randn(numSamplesPerClass, numFeatures) + 2.5;
+features_misaligned = randn(numSamplesPerClass, numFeatures) - 2.5;
+
+% Combine features (X) and labels (Y)
+X = [features_healthy; features_chipped; features_misaligned];
+labels_healthy = repmat({'Healthy'}, numSamplesPerClass, 1);
+labels_chipped = repmat({'Chipped Tooth'}, numSamplesPerClass, 1);
+labels_misaligned = repmat({'Misalignment'}, numSamplesPerClass, 1);
+Y = [labels_healthy; labels_chipped; labels_misaligned];
+
+disp('Step 1: Simulated data generated successfully.');
+
+%% 3. Data Partitioning (70% Train, 15% Validation, 15% Test)
+% We partition the data using the same 70/15/15 split.
+% NOTE: Feature scaling is not required for Random Forest.
+
+cv_main = cvpartition(totalSamples, 'HoldOut', 0.3);
+idxTrain = training(cv_main);
+idxTemp = test(cv_main);
+
+% Separate the main training set
+X_train = X(idxTrain,:);
+Y_train = Y(idxTrain,:);
+
+% Separate the temporary set (30% of total)
+X_temp = X(idxTemp,:);
+Y_temp = Y(idxTemp,:);
+
+% Split the temporary set in half to get validation and test sets
+cv_sub = cvpartition(size(X_temp,1), 'HoldOut', 0.5);
+idxVal = training(cv_sub);
+idxTest = test(cv_sub);
+
+% Separate the final validation and test sets
+X_val = X_temp(idxVal,:);
+Y_val = Y_temp(idxVal,:);
+X_test = X_temp(idxTest,:);
+Y_test = Y_temp(idxTest,:);
+
+fprintf('Data partitioned:\n - Training samples: %d\n - Validation samples: %d\n - Testing samples: %d\n', ...
+    size(X_train,1), size(X_val,1), size(X_test,1));
+
+%% 4. Hyperparameter Tuning: Find the Optimal Number of Trees
+% We use the validation set to find the best number of decision trees.
+
+disp('Step 2: Finding the optimal number of trees...');
+
+numTreesValues = 10:10:200; % Range of tree counts to test
+validationAccuracies = zeros(length(numTreesValues), 1);
+oobErrorRates = zeros(length(numTreesValues), 1); % Out-of-Bag error
+
+for i = 1:length(numTreesValues)
+    numTrees = numTreesValues(i);
+    
+    % Train a temporary Random Forest model
+    % 'OOBPrediction', 'on' allows us to see how the model generalizes
+    rfModel_temp = TreeBagger(numTrees, X_train, Y_train, 'Method', 'classification', 'OOBPrediction', 'on');
+    
+    % Predict on the validation data
+    Y_val_pred_cell = predict(rfModel_temp, X_val);
+    Y_val_pred = categorical(Y_val_pred_cell); % Convert to categorical for comparison
+    
+    % Calculate and store validation accuracy
+    correctPredictions = sum(Y_val_pred == categorical(Y_val));
+    validationAccuracies(i) = correctPredictions / length(Y_val);
+    
+    % Store the OOB error (a good internal estimate of performance)
+    oobErrorRates(i) = oobError(rfModel_temp, 'Mode', 'ensemble');
+end
+
+% Find the best number of trees based on validation accuracy
+[maxAccuracy, bestNumTrees_idx] = max(validationAccuracies);
+optimalNumTrees = numTreesValues(bestNumTrees_idx);
+
+fprintf('Optimal Number of Trees found: %d, with a validation accuracy of %.2f%%\n', optimalNumTrees, maxAccuracy*100);
+
+% Plot the validation accuracy and OOB error vs. number of trees
+figure;
+yyaxis left;
+plot(numTreesValues, validationAccuracies, 'b-o');
+ylabel('Validation Accuracy');
+ylim([0 1]);
+
+yyaxis right;
+plot(numTreesValues, oobErrorRates, 'r-s');
+ylabel('Out-of-Bag Error Rate');
+ylim([0 1]);
+
+xlabel('Number of Trees in Forest');
+title('Random Forest Hyperparameter Tuning');
+legend('Validation Accuracy', 'OOB Error Rate');
+grid on;
+
+%% 5. Train the Final Model
+% Train the final Random Forest model using the optimal number of trees
+% on the combined training and validation data.
+
+disp('Step 3: Training the final Random Forest model...');
+
+X_train_final = [X_train; X_val];
+Y_train_final = [Y_train; Y_val];
+
+rfModel_final = TreeBagger(optimalNumTrees, X_train_final, Y_train_final, 'Method', 'classification');
+
+disp('Final model training complete.');
+
+%% 6. Evaluate the Final Model on the Test Set
+% This provides an unbiased assessment of the model's performance.
+
+disp('Step 4: Evaluating the final model on the unseen test set...');
+
+% Make predictions on the test data
+Y_test_pred = predict(rfModel_final, X_test);
+
+% Convert cell array of characters to categorical for comparison
+Y_test_cat = categorical(Y_test);
+Y_test_pred_cat = categorical(Y_test_pred);
+
+% Calculate final test accuracy
+correctTestPredictions = sum(Y_test_pred_cat == Y_test_cat);
+testAccuracy = correctTestPredictions / length(Y_test);
+
+fprintf('\n--- MODEL EVALUATION COMPLETE ---\n');
+fprintf('Final Test Accuracy: %.2f%%\n', testAccuracy * 100);
+
+% Display the confusion matrix
+figure;
+confusionchart(Y_test_cat, Y_test_pred_cat);
+title(sprintf('Confusion Matrix for Random Forest (Test Accuracy: %.2f%%)', testAccuracy*100));
+
+disp('--- End of Script ---');
