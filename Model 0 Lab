@@ -1,0 +1,25 @@
+clc;
+clear all;
+close all;
+data = xlsread('500rpm.xlsx');
+time = data(:,1);
+amp = data(:,2);
+L = length(amp);
+Fs = 1000;
+NFFT = 2^nextpow2(L);
+Y = fft(amp,NFFT)/L;
+f = Fs/2*linspace(0,1,NFFT/2+1);
+subplot(2,1,1)
+plot(f,2*abs(Y(1:NFFT/2+1)));
+xlabel('Frequency in Hz--->')
+ylabel('Acceleration in m/s^2--->')
+title('FFT of ball defect 5 kg\500rpm')
+grid on;
+x = data(:,1);
+y = data(:,2);
+subplot(2,1,2)
+plot(x,y);
+grid on;
+xlabel('Time in Seconds--->')
+ylabel('Acceleration in m/s^2')
+title('Time Domain Graph ')
