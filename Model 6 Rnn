@@ -1,0 +1,156 @@
+% -------------------------------------------------------------------------
+% Project: Artificial Intelligence-Based Gearbox Fault Identification
+% Model:   6 - LSTM Recurrent Neural Network (RNN) Classifier
+% Author:  [Your Names Here]
+% Date:    October 21, 2025
+% -------------------------------------------------------------------------
+% NOTE: This model, like the CNN, works directly on RAW TIME-SERIES data.
+%       It is designed to learn temporal dependencies in the signal.
+% -------------------------------------------------------------------------
+
+%% 1. Workspace Setup
+clear;         % Clear all variables from the workspace
+clc;           % Clear the command window
+close all;     % Close all open figures
+
+disp('--- Starting Model 6: LSTM Recurrent Neural Network (RNN) ---');
+
+%% 2. Data Generation (Simulated Raw Signals)
+% This section uses the IDENTICAL data generation process as the CNN model
+% to ensure a fair and direct comparison.
+
+% Signal Parameters
+fs = 2048;              % Sampling frequency (Hz)
+t_total = 10;           % Total time for each class signal (seconds)
+t = 0:1/fs:t_total-1/fs;% Time vector
+N = length(t);          % Total number of samples per class
+
+% Base signal (healthy)
+amplitude_base = 0.5;
+noise_level = 0.1;
+healthy_signal = amplitude_base * sin(2*pi*60*t) + noise_level * randn(1, N);
+
+% Faulty signal 1: Chipped Tooth (with periodic impacts)
+impact_amplitude = 3;
+impact_frequency = 10; % 10 impacts per second
+impacts = zeros(1, N);
+impact_indices = 1:fs/impact_frequency:N;
+impacts(round(impact_indices)) = impact_amplitude;
+chipped_signal = healthy_signal + impacts;
+chipped_signal = chipped_signal + 0.2 * randn(1, N);
+
+% Faulty signal 2: Misalignment (with harmonic distortion)
+misaligned_signal = healthy_signal + 0.4*sin(2*pi*120*t) + 0.2*sin(2*pi*180*t);
+misaligned_signal = misaligned_signal + 0.15 * randn(1, N);
+
+disp('Step 1: Simulated raw vibration signals generated.');
+
+%% 3. Data Preparation for RNN/LSTM
+% The preparation is identical to the CNN: segmenting the raw signals.
+% For LSTMs, each time step in a segment is one feature.
+
+segment_length = 1024; % Each input to the LSTM will be a sequence of 1024 time steps
+num_segments_per_class = floor(N / segment_length);
+
+% Pre-allocate cell arrays for data and labels
+X_data = {};
+Y_data = {};
+
+% Segment the signals
+signals = {healthy_signal, chipped_signal, misaligned_signal};
+class_labels = {'Healthy', 'Chipped Tooth', 'Misalignment'};
+
+for k = 1:length(signals)
+    current_signal = signals{k};
+    current_label = class_labels{k};
+    for i = 1:num_segments_per_class
+        start_idx = (i-1)*segment_length + 1;
+        end_idx = i*segment_length;
+        % For LSTM, the input needs to be a column vector for each segment
+        X_data{end+1, 1} = current_signal(start_idx:end_idx)';
+        Y_data{end+1, 1} = current_label;
+    end
+end
+
+Y_data = categorical(Y_data);
+disp('Step 2: Signals segmented into sequences for LSTM input.');
+
+%% 4. Data Partitioning (70% Train, 15% Validation, 15% Test)
+num_total_segments = length(Y_data);
+cv = cvpartition(num_total_segments, 'Holdout', 0.3);
+idxTrain = training(cv);
+idxTemp = test(cv);
+
+X_train = X_data(idxTrain);
+Y_train = Y_data(idxTrain);
+X_temp = X_data(idxTemp);
+Y_temp = Y_data(idxTemp);
+
+cv_sub = cvpartition(length(Y_temp), 'Holdout', 0.5);
+idxVal = training(cv_sub);
+idxTest = test(cv_sub);
+
+X_val = X_temp(idxVal);
+Y_val = Y_temp(idxVal);
+X_test = X_temp(idxTest);
+Y_test = Y_temp(idxTest);
+
+fprintf('Data partitioned:\n - Training samples: %d\n - Validation samples: %d\n - Testing samples: %d\n', ...
+    length(Y_train), length(Y_val), length(Y_test));
+
+%% 5. Define the LSTM Network Architecture
+disp('Step 3: Defining the LSTM network architecture...');
+
+numFeatures = 1; % We have 1 feature per time step (the amplitude)
+numHiddenUnits = 128; % Number of memory units in the LSTM layer
+numClasses = 3;
+
+layers = [ ...
+    sequenceInputLayer(numFeatures, 'Name', 'input')
+    
+    lstmLayer(numHiddenUnits, 'OutputMode', 'last', 'Name', 'lstm')
+    
+    fullyConnectedLayer(numClasses, 'Name', 'fc_output')
+    softmaxLayer('Name', 'softmax')
+    classificationLayer('Name', 'classification')];
+
+analyzeNetwork(layers);
+
+%% 6. Specify Training Options
+disp('Step 4: Configuring training options...');
+
+options = trainingOptions('adam', ...
+    'InitialLearnRate', 0.001, ...
+    'MaxEpochs', 30, ...
+    'MiniBatchSize', 32, ...
+    'Shuffle', 'every-epoch', ...
+    'ValidationData', {X_val, Y_val}, ...
+    'ValidationFrequency', 10, ...
+    'Verbose', false, ...
+    'Plots', 'training-progress');
+
+%% 7. Train the LSTM Network
+disp('Step 5: Training the LSTM model... (This may take a moment)');
+
+[net, trainInfo] = trainNetwork(X_train, Y_train, layers, options);
+
+disp('Model training complete.');
+
+%% 8. Evaluate the Final Model on the Test Set
+disp('Step 6: Evaluating the final model on the unseen test set...');
+
+% Make predictions on the test data
+Y_test_pred = classify(net, X_test);
+
+% Calculate final test accuracy
+testAccuracy = sum(Y_test_pred == Y_test) / numel(Y_test);
+
+fprintf('\n--- MODEL EVALUATION COMPLETE ---\n');
+fprintf('Final Test Accuracy: %.2f%%\n', testAccuracy * 100);
+
+% Display the confusion matrix
+figure;
+confusionchart(Y_test, Y_test_pred);
+title(sprintf('Confusion Matrix for LSTM RNN (Test Accuracy: %.2f%%)', testAccuracy*100));
+
+disp('--- End of Script ---');
