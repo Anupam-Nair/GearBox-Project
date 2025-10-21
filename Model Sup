@@ -1,0 +1,204 @@
+% =========================================================================
+% PROJECT:    Artificial Intelligence-Based Gearbox Fault Identification
+% SCRIPT:     The Overall Superior Code - Adaptive Intelligent Diagnostic System
+% AUTHOR:     [Your Names Here]
+% DATE:       October 21, 2025
+% =========================================================================
+% DESCRIPTION:
+% This script simulates the complete, advanced diagnostic pipeline. It uses
+% a dual-sensor setup with an adaptive noise cancellation filter to isolate
+% true gearbox vibrations from external noise (e.g., other machines,
+% footsteps). It then extracts key features from the clean signal and uses
+% a pre-trained Random Forest model to provide a final, robust diagnosis.
+% =========================================================================
+
+%% 1. Workspace Setup
+clear;
+clc;
+close all;
+
+disp('--- Starting the Adaptive Intelligent Diagnostic System ---');
+
+%% 2. System Configuration & Model Training (Run Once)
+% In a real application, the AI model is trained once on clean, labeled
+% data and then saved. This section simulates that one-time training process.
+
+% Check if a pre-trained model exists. If not, train and save one.
+modelFileName = 'trainedRandomForestModel.mat';
+if ~exist(modelFileName, 'file')
+    disp('No pre-trained model found. Training a new one...');
+    
+    % --- Generate a clean, comprehensive dataset for training ---
+    numSamplesPerClass = 500;
+    numFeatures = 7;
+    X_train_clean = zeros(numSamplesPerClass * 3, numFeatures);
+    Y_train_labels = cell(numSamplesPerClass * 3, 1);
+    
+    for i = 1:numSamplesPerClass*3
+        if i <= numSamplesPerClass
+            state = 'Healthy';
+            [clean_signal, ~] = generate_signals(state);
+        elseif i <= numSamplesPerClass*2
+            state = 'Chipped Tooth';
+            [clean_signal, ~] = generate_signals(state);
+        else
+            state = 'Misalignment';
+            [clean_signal, ~] = generate_signals(state);
+        end
+        X_train_clean(i, :) = extract_features(clean_signal);
+        Y_train_labels{i} = state;
+    end
+    
+    % --- Train the Random Forest Model ---
+    numTrees = 150; % Optimal number of trees
+    trainedModel = TreeBagger(numTrees, X_train_clean, Y_train_labels, 'Method', 'classification');
+    
+    % --- Save the trained model for future use ---
+    save(modelFileName, 'trainedModel');
+    disp(['New model trained and saved as ' modelFileName]);
+else
+    disp(['Loading pre-trained model: ' modelFileName]);
+    load(modelFileName); % Loads the 'trainedModel' variable
+end
+
+%% 3. Simulate a New, Live Signal for Diagnosis
+% This section simulates a new measurement coming from the test rig.
+% We will simulate a 'Chipped Tooth' fault with heavy external noise.
+
+disp('Step 1: Simulating new live data from dual-sensor setup...');
+
+diagnosticCase = 'Chipped Tooth';
+[clean_gearbox_signal, ambient_noise_signal] = generate_signals(diagnosticCase);
+
+% Primary Sensor Signal = Gearbox Signal + Ambient Noise
+primary_sensor_signal = clean_gearbox_signal + ambient_noise_signal;
+
+% Reference Sensor Signal = Just Ambient Noise
+reference_sensor_signal = ambient_noise_signal;
+
+%% 4. Adaptive Noise Cancellation
+% Use an LMS adaptive filter to remove the ambient noise.
+
+disp('Step 2: Applying adaptive noise cancellation...');
+
+% Configure the LMS adaptive filter
+lmsFilter = dsp.LMSFilter('Length', 32, 'StepSize', 0.001);
+
+% The filter's goal is to produce an error signal (the clean signal) by
+% subtracting the predicted noise from the primary signal.
+[~, estimated_clean_signal] = lmsFilter(primary_sensor_signal, reference_sensor_signal);
+
+%% 5. Feature Extraction from the Cleaned Signal
+% Run the feature extraction pipeline on the noise-cancelled signal.
+
+disp('Step 3: Extracting features from the clean signal...');
+
+features_live = extract_features(estimated_clean_signal);
+
+%% 6. Final Diagnosis using the Pre-trained Model
+% Feed the clean features into the loaded Random Forest AI engine.
+
+disp('Step 4: Making a diagnosis with the AI model...');
+
+[predicted_label, ~] = predict(trainedModel, features_live);
+
+% Display the final diagnosis
+fprintf('\n========================================\n');
+fprintf('         DIAGNOSTIC RESULT\n');
+fprintf('========================================\n');
+fprintf('Detected Condition: %s\n', predicted_label{1});
+fprintf('========================================\n\n');
+
+%% 7. Visualization
+% Plot all signals to demonstrate the effectiveness of the system.
+
+figure('Name', 'Adaptive Diagnostic System Analysis', 'NumberTitle', 'off', 'Position', [100, 100, 1200, 800]);
+
+% Plot 1: The noisy signal from the primary sensor
+subplot(3, 1, 1);
+plot(primary_sensor_signal, 'r');
+title('1. Noisy Signal from Primary Sensor (Gearbox + External Noise)');
+ylabel('Amplitude');
+grid on;
+legend('Primary Sensor');
+
+% Plot 2: The external noise captured by the reference sensor
+subplot(3, 1, 2);
+plot(reference_sensor_signal, 'b');
+title('2. External Noise Signal from Reference Sensor (Footsteps, Other Machines)');
+ylabel('Amplitude');
+grid on;
+legend('Reference Sensor');
+
+% Plot 3: The final, clean signal after adaptive filtering
+subplot(3, 1, 3);
+plot(estimated_clean_signal, 'g');
+title('3. Clean Gearbox Signal after Adaptive Noise Cancellation');
+xlabel('Time (samples)');
+ylabel('Amplitude');
+grid on;
+legend('Cleaned Signal');
+
+disp('--- End of Script ---');
+
+
+%% ========================================================================
+%                     HELPER FUNCTIONS
+% =========================================================================
+
+function [clean_signal, ambient_noise] = generate_signals(fault_type)
+    % This function simulates the raw vibration data.
+    fs = 2048;
+    t = 0:1/fs:2-1/fs;
+    N = length(t);
+    
+    % Generate base healthy signal
+    base_signal = 0.5 * sin(2*pi*60*t);
+    
+    % Add fault characteristics
+    switch fault_type
+        case 'Healthy'
+            clean_signal = base_signal + 0.1 * randn(1, N);
+        case 'Chipped Tooth'
+            impacts = zeros(1, N);
+            impacts(1:fs/10:end) = 2.5; % Impacts at 10 Hz
+            clean_signal = base_signal + impacts + 0.2 * randn(1, N);
+        case 'Misalignment'
+            clean_signal = base_signal + 0.4*sin(2*pi*120*t) + 0.15 * randn(1, N);
+    end
+    
+    % Generate external ambient noise (low freq hum + random footsteps)
+    noise_hum = 0.3 * sin(2*pi*25*t);
+    noise_spikes = zeros(1, N);
+    spike_indices = randi(N, 1, 5); % 5 random footsteps
+    noise_spikes(spike_indices) = 1.5;
+    ambient_noise = noise_hum + noise_spikes + 0.05 * randn(1, N);
+end
+
+function features = extract_features(signal)
+    % This function extracts the 7 key features from a signal.
+    % Time-Domain
+    rms_val = rms(signal);
+    kurt_val = kurtosis(signal);
+    skew_val = skewness(signal);
+    peak_val = max(abs(signal));
+    crest_factor = peak_val / rms_val;
+    peak_to_peak = max(signal) - min(signal);
+    
+    % Frequency-Domain (Simplified for this example)
+    fs = 2048;
+    L = length(signal);
+    NFFT = 2^nextpow2(L);
+    Y = fft(signal, NFFT) / L;
+    f = fs/2 * linspace(0, 1, NFFT/2+1);
+    
+    [~, gmf_idx] = findpeaks(2*abs(Y(1:NFFT/2+1)), 'SortStr', 'descend', 'NPeaks', 1);
+    gmf_amp = 2*abs(Y(gmf_idx));
+    
+    % Simple sideband energy (energy in bins around GMF)
+    sideband_range = (gmf_idx-5):(gmf_idx+5);
+    sideband_range = sideband_range(sideband_range > 0 & sideband_range < length(f));
+    sideband_energy = sum(2*abs(Y(sideband_range))) - gmf_amp;
+
+    features = [rms_val, kurt_val, skew_val, crest_factor, peak_to_peak, gmf_amp, sideband_energy];
+end
