@@ -1,0 +1,144 @@
+% -------------------------------------------------------------------------
+% Project: Artificial Intelligence-Based Gearbox Fault Identification
+% Model:   4 - Artificial Neural Network (ANN) Classifier
+% Author:  [Your Names Here]
+% Date:    October 21, 2025
+% -------------------------------------------------------------------------
+
+%% 1. Workspace Setup
+clear;         % Clear all variables from the workspace
+clc;           % Clear the command window
+close all;     % Close all open figures
+
+disp('--- Starting Model 4: Artificial Neural Network (ANN) Classifier ---');
+
+%% 2. Data Generation (Simulated)
+% This section uses the IDENTICAL data generation process as the previous
+% models to ensure a fair and direct comparison.
+
+% Parameters for the dataset
+numSamplesPerClass = 200;
+numFeatures = 7; % Corresponds to the features in Table 3.2
+totalSamples = numSamplesPerClass * 3;
+
+% Generate data for 3 classes: 'Healthy', 'Chipped Tooth', 'Misalignment'
+rng(1); % for reproducibility
+features_healthy = randn(numSamplesPerClass, numFeatures);
+features_chipped = randn(numSamplesPerClass, numFeatures) + 2.5;
+features_misaligned = randn(numSamplesPerClass, numFeatures) - 2.5;
+
+% Combine features (X) and labels (Y)
+X = [features_healthy; features_chipped; features_misaligned];
+labels_healthy = repmat({'Healthy'}, numSamplesPerClass, 1);
+labels_chipped = repmat({'Chipped Tooth'}, numSamplesPerClass, 1);
+labels_misaligned = repmat({'Misalignment'}, numSamplesPerClass, 1);
+Y = categorical([labels_healthy; labels_chipped; labels_misaligned]); % Use categorical directly
+
+disp('Step 1: Simulated data generated successfully.');
+
+%% 3. Data Pre-processing and Partitioning
+% Feature scaling (Standardization) is crucial for ANNs.
+% We then partition the data using the same 70/15/15 split.
+
+% Feature Scaling (Z-score normalization)
+mu = mean(X);
+sigma = std(X);
+X_scaled = (X - mu) ./ sigma;
+
+% Data Partitioning
+cv_main = cvpartition(totalSamples, 'HoldOut', 0.3);
+idxTrain = training(cv_main);
+idxTemp = test(cv_main);
+
+X_train_raw = X_scaled(idxTrain,:);
+Y_train = Y(idxTrain,:);
+X_temp_raw = X_scaled(idxTemp,:);
+Y_temp = Y(idxTemp,:);
+
+cv_sub = cvpartition(size(X_temp_raw,1), 'HoldOut', 0.5);
+idxVal = training(cv_sub);
+idxTest = test(cv_sub);
+
+X_val_raw = X_temp_raw(idxVal,:);
+Y_val = Y_temp(idxVal,:);
+X_test_raw = X_temp_raw(idxTest,:);
+Y_test = Y(idxTest,:);
+
+% **IMPORTANT**: Format data for Deep Learning Toolbox
+% Features: (numFeatures x numSamples)
+% Labels: One-hot encoded (numClasses x numSamples)
+X_train = X_train_raw';
+X_val = X_val_raw';
+X_test = X_test_raw';
+
+fprintf('Data partitioned, scaled, and formatted for ANN:\n - Training samples: %d\n - Validation samples: %d\n - Testing samples: %d\n', ...
+    size(X_train,2), size(X_val,2), size(X_test,2));
+
+%% 4. Define the ANN Architecture
+% We define the layers of our neural network as described in the report.
+
+disp('Step 2: Defining the neural network architecture...');
+
+layers = [
+    featureInputLayer(numFeatures, 'Name', 'input')
+    
+    fullyConnectedLayer(64, 'Name', 'fc1')
+    reluLayer('Name', 'relu1')
+    
+    fullyConnectedLayer(32, 'Name', 'fc2')
+    reluLayer('Name', 'relu2')
+    
+    fullyConnectedLayer(3, 'Name', 'fc_output') % 3 classes
+    softmaxLayer('Name', 'softmax')
+    classificationLayer('Name', 'classification')
+];
+
+% Analyze the network architecture
+analyzeNetwork(layers);
+
+%% 5. Specify Training Options
+% Configure the training algorithm, learning rate, epochs, etc.
+% We include validation data to monitor for overfitting.
+
+disp('Step 3: Configuring training options...');
+
+options = trainingOptions('adam', ...
+    'InitialLearnRate', 0.001, ...
+    'MaxEpochs', 100, ...
+    'MiniBatchSize', 32, ...
+    'Shuffle', 'every-epoch', ...
+    'ValidationData', {X_val, Y_val}, ...
+    'ValidationFrequency', 10, ...
+    'Verbose', false, ... % Set to true to see detailed training progress
+    'Plots', 'training-progress'); % Shows a live plot of training progress
+
+%% 6. Train the Neural Network
+% Train the ANN using the specified architecture, data, and options.
+
+disp('Step 4: Training the ANN model... (This may take a moment)');
+
+[net, trainInfo] = trainNetwork(X_train, Y_train, layers, options);
+
+disp('Model training complete.');
+
+%% 7. Evaluate the Final Model on the Test Set
+% This provides an unbiased assessment of the model's performance.
+
+disp('Step 5: Evaluating the final model on the unseen test set...');
+
+% Make predictions on the test data
+Y_test_pred = classify(net, X_test);
+
+% Calculate final test accuracy
+correctTestPredictions = sum(Y_test_pred == Y_test);
+testAccuracy = correctTestPredictions / length(Y_test);
+
+fprintf('\n--- MODEL EVALUATION COMPLETE ---\n');
+fprintf('Final Test Accuracy: %.2f%%\n', testAccuracy * 100);
+
+% Display the confusion matrix
+figure;
+confusionchart(Y_test, Y_test_pred);
+title(sprintf('Confusion Matrix for ANN (Test Accuracy: %.2f%%)', testAccuracy*100));
+
+disp('--- End of Script ---');
